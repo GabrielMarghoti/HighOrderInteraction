@@ -88,8 +88,8 @@ function run_parameter_sweep(N = 20, τ = 0.05)
     end
 
     # Sweep Grids
-    K1_vals = range(0.0, 1.0, length=6)
-    K2_vals = range(0.0, 1.0, length=6)
+    K1_vals = range(0.0, 1.0, length=11)
+    K2_vals = range(0.0, 1.0, length=11)
     
     # Result Matrix
     R_matrix = zeros(length(K1_vals), length(K2_vals))
@@ -151,7 +151,7 @@ for (label, τ_val) in tau_configs
     mkpath(out_dir)
     
     # Execute the sweep
-    K1_grid, K2_grid, R_results = run_parameter_sweep(10, τ_val)
+    K1_grid, K2_grid, R_results = run_parameter_sweep(20, τ_val)
     
     # Generate the heatmap
     p = heatmap(K1_grid, K2_grid, R_results',
