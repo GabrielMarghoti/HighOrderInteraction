@@ -1,4 +1,4 @@
-# Requer a instalação dos pacotes: DifferentialEquations, Plots, JLD2
+# Requires: DifferentialEquations, Plots, JLD2
 using DifferentialEquations
 using Plots
 using JLD2
@@ -6,20 +6,20 @@ using LinearAlgebra
 using Random
 
 gr() 
-default(fontfamily="Computer Modern", linewidth=2, label=nothing, grid=false, framestyle=:box)
+default(fontfamily="Computer Modern", linewidth=1.5, label=nothing, grid=false, framestyle=:box)
 
-# Parâmetros Base
+# Base Parameters
 const N = 20
 const tspan = (0.0, 50.0)
 
-# Inicialização de topologia (Fixa para toda a varredura para garantir comparação justa)
+# Topology Initialization (Fixed across sweeps for fair comparison)
 Random.seed!(42)
-const omega = 1.0*ones(N) #randn(N) * 0.5
+const omega = randn(N) * 0.5
 const A = Float64.(rand(N, N) .< 0.3)
 const B = Float64.(rand(N, N, N) .< 0.1)
 
-# Função do sistema dinâmico
-function kuramoto_dinamico!(du, x, p, t)
+# Dynamical System Function
+function kuramoto_dynamics!(du, x, p, t)
     N_osc = p.N
     θ = @view x[1:N_osc]
     U = reshape(@view(x[N_osc+1:end]), N_osc, N_osc)
@@ -28,76 +28,93 @@ function kuramoto_dinamico!(du, x, p, t)
     dU = reshape(@view(du[N_osc+1:end]), N_osc, N_osc)
     
     for i in 1:N_osc
-        soma_fase = 0.0
+        phase_sum = 0.0
         for j in 1:N_osc
-            soma_fase += U[i, j] * sin(θ[j] - θ[i])
+            phase_sum += U[i, j] * sin(θ[j] - θ[i])
         end
-        dθ[i] = p.omega[i] + soma_fase
+        dθ[i] = p.omega[i] + phase_sum
         
         for j in 1:N_osc
-            soma_campo = 0.0
+            field_sum = 0.0
             for k in 1:N_osc
-                soma_campo += p.B[i, j, k] * cos(θ[k] - θ[i])
+                field_sum += p.B[i, j, k] * cos(θ[k] - θ[i])
             end
-            dU[i, j] = (-U[i, j] + p.K1 * p.A[i, j] + p.K2 * soma_campo) / p.tau
+            dU[i, j] = (-U[i, j] + p.K1 * p.A[i, j] + p.K2 * field_sum) / p.tau
         end
     end
 end
 
-# Arrays de parâmetros para a varredura
+# Parameter Arrays
 K1_vals = [0.1, 0.5, 1.0]
 K2_vals = [0.0, 0.5, 1.0]
-tau_vals = [0.01, 0.5, 2.0] # Inclui limite rápido e lento
+tau_vals = [0.01, 0.5, 2.0]
 
 for K1 in K1_vals, K2 in K2_vals, tau in tau_vals
-    println("Simulando: K1=$K1 | K2=$K2 | tau=$tau")
+    println("Analyzing: K1=$K1 | K2=$K2 | tau=$tau")
     
-    # Gerenciar diretórios específicos para esta configuração
     config_name = "K1_$(K1)_K2_$(K2)_tau_$(tau)"
     data_dir = joinpath("data", config_name)
     fig_dir = joinpath("figures", config_name)
+    ts_dir = joinpath(fig_dir, "timeseries") # Specific folder for time series
     
     mkpath(data_dir)
     mkpath(fig_dir)
+    mkpath(ts_dir)
 
-    params = (N=N, omega=omega, A=A, B=B, K1=K1, K2=K2, tau=tau)
-
-    # Condições iniciais
-    theta_0 = rand(N) .* 2π
-    U_0 = K1 .* A 
-    x0 = vcat(theta_0, vec(U_0))
-
-    # Solver tolerante a stiffness para valores pequenos de tau
-    prob = ODEProblem(kuramoto_dinamico!, x0, tspan, params)
-    sol = solve(prob, AutoTsit5(Rosenbrock23()), saveat=0.1)
-
-    # Processamento de Dados
-    tempos = sol.t
-    theta_sol = zeros(N, length(tempos))
-    U_media_in = zeros(N, length(tempos))
-
-    for (idx, t) in enumerate(tempos)
-        estado = sol.u[idx]
-        theta_sol[:, idx] .= sin.(estado[1:N]) 
+    cache_path = joinpath(data_dir, "simulation_cache.jld2")
+    run_sim = true
+    
+    # Strict cache validation
+    if isfile(cache_path)
+        @load cache_path tempos saved_params
         
-        U_matrix = reshape(estado[N+1:end], N, N)
-        U_media_in[:, idx] .= dropdims(sum(U_matrix, dims=2), dims=2) ./ N
+        if tempos[end] >= tspan[2] && saved_params.K1 == K1 && saved_params.K2 == K2 && saved_params.tau == tau
+            println(" -> Valid cache found. Skipping numerical integration.")
+            @load cache_path theta_sol U_media_in
+            run_sim = false
+        else
+            println(" -> Cache obsolete or divergent. Rerunning simulation.")
+        end
     end
 
-    # Salvar Cache
-    @save joinpath(data_dir, "simulacao_kuramoto.jld2") tempos theta_sol U_media_in params
+    if run_sim
+        params = (N=N, omega=omega, A=A, B=B, K1=K1, K2=K2, tau=tau)
+        theta_0 = rand(N) .* 2π
+        U_0 = K1 .* A 
+        x0 = vcat(theta_0, vec(U_0))
 
-    # Plotagem
-    p1 = heatmap(tempos, 1:N, theta_sol, 
-                 color=:viridis, xlabel="Tempo", ylabel="Oscilador i", 
-                 title="Fases sin(θ)", clims=(-1, 1))
+        prob = ODEProblem(kuramoto_dynamics!, x0, tspan, params)
+        sol = solve(prob, AutoTsit5(Rosenbrock23()), saveat=0.1)
 
-    p2 = heatmap(tempos, 1:N, U_media_in, 
-                 color=:inferno, xlabel="Tempo", ylabel="Oscilador i", 
-                 title="Força de Transmissão Média (u)")
+        tempos = sol.t
+        theta_sol = zeros(N, length(tempos))
+        U_media_in = zeros(N, length(tempos))
 
-    plt = plot(p1, p2, layout=(2, 1), size=(800, 600))
-    savefig(plt, joinpath(fig_dir, "raster_plots.png"))
+        for (idx, t) in enumerate(tempos)
+            state = sol.u[idx]
+            theta_sol[:, idx] .= sin.(state[1:N]) 
+            
+            U_matrix = reshape(state[N+1:end], N, N)
+            U_media_in[:, idx] .= dropdims(sum(U_matrix, dims=2), dims=2) ./ N
+        end
+
+        saved_params = params
+        @save cache_path tempos theta_sol U_media_in saved_params
+    end
+
+    # Plotting: Heatmaps
+    p_heat1 = heatmap(tempos, 1:N, theta_sol, color=:viridis, title="Phases sin(θ)", clims=(-1, 1))
+    p_heat2 = heatmap(tempos, 1:N, U_media_in, color=:inferno, title="Mean U")
+    plt_heat = plot(p_heat1, p_heat2, layout=(2, 1), size=(800, 600))
+    savefig(plt_heat, joinpath(fig_dir, "raster_plots.png"))
+
+    # Plotting: Time Series (Lines)
+    # Transposing matrices so each column is a separate line (oscillator)
+    p_line1 = plot(tempos, theta_sol', title="Time Series: Phases sin(θ)", xlabel="Time", ylabel="sin(θ)", palette=:tab20)
+    p_line2 = plot(tempos, U_media_in', title="Time Series: Mean Incoming U", xlabel="Time", ylabel="Mean U", palette=:tab20)
+    
+    plt_line = plot(p_line1, p_line2, layout=(2, 1), size=(800, 600))
+    savefig(plt_line, joinpath(ts_dir, "timeseries_plots.png"))
 end
 
-println("Varredura de parâmetros concluída.")
+println("Parameter sweep completed.")
