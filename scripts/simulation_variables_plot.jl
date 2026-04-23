@@ -45,9 +45,9 @@ function kuramoto_dynamics!(du, x, p, t)
 end
 
 # Parameter Arrays
-K1_vals = [0.1, 0.5, 1.0]
-K2_vals = [0.0, 0.5, 1.0]
-tau_vals = [0.01, 0.5, 2.0]
+K1_vals = [0.0, 0.01, 0.1, 0.2, 0.5, 1.0]
+K2_vals = [0.0, 0.01, 0.05, 0.1]
+tau_vals = [0.01, 0.5, 1.0, 5.0]
 
 for K1 in K1_vals, K2 in K2_vals, tau in tau_vals
     println("Analyzing: K1=$K1 | K2=$K2 | tau=$tau")
